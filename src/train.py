@@ -4,7 +4,7 @@ import torch
 import shutil
 import transformers
 from pathlib import Path
-from trainer import LMTrainer
+from training import LMTrainer
 from dataset import DATASET_MAP
 from preprocess import DataConfig
 from huggingface_hub import login
@@ -406,7 +406,7 @@ def train_rl_mode(rl_mode: str, data_args: DataArguments, model_args: ModelArgum
             logger.warning(f"Failed to initialize WandB: {e}")
     
     try:
-        from trainer import create_rl_trainer
+        from training import create_rl_trainer
         
         trainer = create_rl_trainer(config)
         

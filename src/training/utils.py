@@ -2,7 +2,7 @@ import torch
 import logging
 from config import logger
 from datasets import load_dataset
-from trainer.rl import RLConfigManager
+from training.rl import RLConfigManager
 from peft import TaskType, LoraConfig, get_peft_model
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -90,7 +90,7 @@ def create_rl_trainer(config):
         total_params = sum(p.numel() for p in model.parameters())
         logger.info(f"Applied LoRA: {trainable_params:,} trainable params ({100*trainable_params/total_params:.2f}%)")
     
-    from trainer import TRAINER_MAP, PREPROCESSOR_MAP
+    from training import TRAINER_MAP, PREPROCESSOR_MAP
     TrainerClass = TRAINER_MAP[training_mode]
     preprocessor = PREPROCESSOR_MAP[training_mode](training_args)
     trainer = create_trainer(model, tokenizer, training_args, TrainerClass, preprocessor.process)

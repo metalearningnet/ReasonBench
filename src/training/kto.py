@@ -3,7 +3,7 @@ import copy
 from peft import PeftModel
 from trl import KTOTrainer, KTOConfig
 from config import logger, load_rl_config
-from trainer.rl import RLConfig, RLTrainer, RLPreprocessor
+from training.rl import RLConfig, RLTrainer, RLPreprocessor
 
 class RLKTOConfig(RLConfig):
     def update(self, args):

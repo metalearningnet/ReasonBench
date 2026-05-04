@@ -1,10 +1,9 @@
 import os
-import copy
-from config import logger
-from trl import DPOTrainer, DPOConfig
-from trainer.rl import RLConfig, RLTrainer, RLPreprocessor
+from config import logger, load_rl_config
+from trl.experimental.cpo import CPOTrainer, CPOConfig
+from training.rl import RLConfig, RLTrainer, RLPreprocessor
 
-class RLDPOConfig(RLConfig):
+class RLCPOConfig(RLConfig):
     def update(self, args):
         args.update({
             "dataset_name": self.dataset_name,
@@ -17,19 +16,19 @@ class RLDPOConfig(RLConfig):
         })
         return args
 
-class RLDPOPreprocessor(RLPreprocessor):
+class RLCPOPreprocessor(RLPreprocessor):
     def process(self, dataset, limit=None):
         field_mappings = self.training_args.field_mappings
         if field_mappings is None:
-            raise ValueError("DPO field mappings must be provided in training_args.")
+            raise ValueError("CPO field mappings must be provided in training_args.")
         
-        logger.info(f"DPO field mappings: {field_mappings}")
+        logger.info(f"CPO field mappings: {field_mappings}")
         required_columns = list(field_mappings.values())
         missing_columns = [col for col in required_columns if col not in dataset.column_names]
         
         if missing_columns:
             raise ValueError(
-                f"DPO dataset missing required columns: {missing_columns}. "
+                f"CPO dataset missing required columns: {missing_columns}. "
                 f"Available columns: {dataset.column_names}"
             )
         
@@ -56,7 +55,7 @@ class RLDPOPreprocessor(RLPreprocessor):
             clean_batch,
             batched=True,
             num_proc=num_proc,
-            desc="Cleaning DPO dataset"
+            desc="Cleaning CPO dataset"
         )
         
         initial_size = len(dataset)
@@ -71,7 +70,7 @@ class RLDPOPreprocessor(RLPreprocessor):
             filter_batch,
             batched=True,
             num_proc=num_proc,
-            desc="Filtering invalid DPO pairs"
+            desc="Filtering invalid CPO pairs"
         )
         filtered_size = len(dataset)
         
@@ -84,7 +83,7 @@ class RLDPOPreprocessor(RLPreprocessor):
             dataset = dataset.select(range(effective_limit))
             logger.info(f"Limited dataset to {effective_limit} examples.")
         
-        logger.info(f"Processed DPO dataset with {len(dataset)} examples.")
+        logger.info(f"Processed CPO dataset with {len(dataset)} examples.")
         if len(dataset) > 0:
             logger.info(f"Sample prompt: {dataset[0]['prompt'][:100]}...")
             logger.info(f"Sample chosen: {dataset[0]['chosen'][:100]}...")
@@ -92,15 +91,14 @@ class RLDPOPreprocessor(RLPreprocessor):
         
         return dataset
 
-class RLDPOTrainer(RLTrainer):
+class RLCPOTrainer(RLTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        ref_model = copy.deepcopy(self.model)
-        for param in ref_model.parameters():
-            param.requires_grad = False
+        rl_config = load_rl_config("cpo")
+        cpo_alpha = rl_config.get("cpo_alpha", 1.0)
         
-        dpo_config = DPOConfig(
+        cpo_config = CPOConfig(
             output_dir=self.args.output_dir,
             per_device_train_batch_size=self.args.per_device_train_batch_size,
             per_device_eval_batch_size=self.args.per_device_eval_batch_size,
@@ -116,26 +114,25 @@ class RLDPOTrainer(RLTrainer):
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             seed=self.args.seed,
             beta=self.args.beta,
+            cpo_alpha=cpo_alpha,
             loss_type=self.args.loss_type,
-            model_init_kwargs=self.args.model_init_kwargs,
             max_length=self.args.max_prompt_length + self.args.max_completion_length
         )
         
-        self.trltrainer = DPOTrainer(
+        self.trltrainer = CPOTrainer(
             model=self.model,
-            ref_model=ref_model,
-            args=dpo_config,
+            args=cpo_config,
             train_dataset=self.train_dataset,
             eval_dataset=self.eval_dataset,
             processing_class=self.tokenizer
         )
         
-        logger.info(f"RLDPOTrainer initialized with beta={self.args.beta}, loss_type={self.args.loss_type}")
+        logger.info(f"RLCPOTrainer initialized with beta={self.args.beta}, cpo_alpha={cpo_alpha}, loss_type={self.args.loss_type}")
     
     def train(self):
         try:
             train_result = self.trltrainer.train()
-            logger.info("DPO training completed successfully")
+            logger.info("CPO training completed successfully")
             
             if self.args.checkpoint_dir:
                 self.save_model(self.args.checkpoint_dir)
@@ -145,5 +142,5 @@ class RLDPOTrainer(RLTrainer):
                 "output_dir": self.args.checkpoint_dir
             }
         except Exception as e:
-            logger.error(f"Error during DPO training: {e}")
+            logger.error(f"Error during CPO training: {e}")
             raise

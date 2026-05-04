@@ -196,7 +196,6 @@ class ModelPathResolver:
                 except Exception as e:
                     logger.warning(f"Failed to read training_args.json: {e}")
             
-            logger.info(f"Using directory as model: {model_path}")
             return str(model_path), None, None, None
         
         logger.info(f"Model path appears to be a model identifier: {model_path}")
@@ -1716,9 +1715,7 @@ def evaluate() -> float:
 
     model_name, input_embedding_file, output_embedding_file, checkpoint_dir = ModelPathResolver.resolve(model_args)
 
-    logger.info(f"Model path: {model_args.model}")
     logger.info(f"Resolved model name: {model_name}")
-    logger.info(f"Checkpoint directory: {checkpoint_dir}")
 
     is_trl_trained_model = False
 

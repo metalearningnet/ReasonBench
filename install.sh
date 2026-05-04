@@ -11,7 +11,6 @@ UV_INSTALL_METHOD=${UV_INSTALL_METHOD:-standalone}
 OS=$(uname -s)
 
 readonly DATASET_LOADER_SCRIPT="src/dataset_loader.py"
-readonly MD_TARGET_DIR="./targets/md"
 readonly DEFAULT_OUTPUT_DIR="data"
 
 if [[ -t 1 ]]; then
@@ -135,6 +134,7 @@ INSTALL_DATASET=false
 
 MODEL_NAME=""
 MODEL_SOURCE_PATH=""
+MODEL_TARGET_DIR=""
 
 DATASET_PATH=""
 DATASET_NAME=""
@@ -272,8 +272,8 @@ parse_arguments() {
 
 validate_arguments() {
     local mode_count=0
-    [[ "${INSTALL_MODEL}" == "true" ]] && ((mode_count++))
-    [[ "${INSTALL_DATASET:-}" == "true" ]] && ((mode_count++))
+    [[ "${INSTALL_MODEL}" == "true" ]] && mode_count=$((mode_count + 1))
+    [[ "${INSTALL_DATASET:-}" == "true" ]] && mode_count=$((mode_count + 1))
 
     if [[ $mode_count -gt 1 ]]; then
         log_error "Cannot combine --model and --dataset in the same command. Please choose one mode."
@@ -298,6 +298,22 @@ validate_arguments() {
         fi
         if [[ "$MODEL_NAME" != "md" ]]; then
             log_error "Currently only 'md' model is supported. You specified: $MODEL_NAME"
+        fi
+
+        if [[ -n "${MODEL_SOURCE_PATH:-}" ]]; then
+            local check_path="$MODEL_SOURCE_PATH"
+            if [[ "$check_path" == ~* ]]; then
+                check_path="${HOME}${check_path:1}"
+            fi
+            if [[ "$check_path" == /* ]] || [[ "$MODEL_SOURCE_PATH" == ~* ]]; then
+                if [[ ! -e "$check_path" ]]; then
+                    log_error "Specified --path does not exist: $MODEL_SOURCE_PATH (resolved: $check_path)"
+                elif [[ ! -d "$check_path" ]]; then
+                    log_error "Specified --path is not a directory: $MODEL_SOURCE_PATH (resolved: $check_path)"
+                elif [[ ! -r "$check_path" ]]; then
+                    log_error "Specified --path is not readable (permission denied): $MODEL_SOURCE_PATH (resolved: $check_path)"
+                fi
+            fi
         fi
     fi
 }
@@ -378,40 +394,54 @@ install_packages() {
 }
 
 install_model() {
-    log_info "Installing $MODEL_NAME model..."
+    log_info "Installing $MODEL_NAME model to $MODEL_TARGET_DIR..."
 
     if [[ "$MODEL_NAME" != "md" ]]; then
         log_error "Currently only 'md' model is supported"
     fi
 
-    mkdir -p "$(dirname "$MD_TARGET_DIR")"
+    mkdir -p "$(dirname "$MODEL_TARGET_DIR")"
 
-    if [[ -d "$MD_TARGET_DIR" ]]; then
-        log_warning "Removing existing MD directory at $MD_TARGET_DIR"
-        rm -rf "$MD_TARGET_DIR"
+    if [[ -d "$MODEL_TARGET_DIR" ]]; then
+        log_warning "Removing existing ${MODEL_NAME} directory at $MODEL_TARGET_DIR"
+        rm -rf "$MODEL_TARGET_DIR"
     fi
 
     if [[ -n "$MODEL_SOURCE_PATH" ]]; then
         if [[ -d "$MODEL_SOURCE_PATH" ]]; then
-            log_info "Copying $MODEL_NAME model from $MODEL_SOURCE_PATH to $MD_TARGET_DIR"
-            cp -r "$MODEL_SOURCE_PATH" "$MD_TARGET_DIR"
+            log_info "Copying $MODEL_NAME model from $MODEL_SOURCE_PATH to $MODEL_TARGET_DIR"
+            cp -r "$MODEL_SOURCE_PATH" "$MODEL_TARGET_DIR" || \
+                log_error "Failed to copy model from $MODEL_SOURCE_PATH to $MODEL_TARGET_DIR"
         else
             log_error "Local $MODEL_NAME path $MODEL_SOURCE_PATH does not exist or is not a directory"
         fi
     else
-        log_info "Cloning $MODEL_NAME model from GitHub to $MD_TARGET_DIR"
-        if git clone https://github.com/metalearningnet/md.git "$MD_TARGET_DIR"; then
+        log_info "Cloning $MODEL_NAME model from GitHub to $MODEL_TARGET_DIR"
+        if git clone https://github.com/metalearningnet/md.git "$MODEL_TARGET_DIR"; then
             log_info "$MODEL_NAME model cloned successfully"
         else
             log_error "Failed to clone $MODEL_NAME model from GitHub"
         fi
     fi
 
-    if [[ -d "$MD_TARGET_DIR" ]]; then
-        log_info "$MODEL_NAME model successfully installed to $MD_TARGET_DIR"
-    else
+    if [[ ! -d "$MODEL_TARGET_DIR" ]]; then
         log_error "Failed to install $MODEL_NAME model"
     fi
+
+    local model_install_script="${MODEL_TARGET_DIR}/install.sh"
+    if [[ -f "$model_install_script" ]]; then
+        log_info "Found model-specific installation script: $model_install_script"
+        log_info "Executing model installation script..."
+        if bash "$model_install_script"; then
+            log_info "Model installation script completed successfully"
+        else
+            log_error "Model installation script failed: $model_install_script"
+        fi
+    else
+        log_warning "No model-specific install.sh found at $model_install_script (optional, continuing)"
+    fi
+
+    log_info "$MODEL_NAME model successfully installed to $MODEL_TARGET_DIR"
 }
 
 install_dataset() {
@@ -460,17 +490,22 @@ install_dataset() {
 
 main() {
     check_os_support
-
     ensure_uv_installed
     parse_arguments "$@"
     validate_arguments
     setup_venv
+
+    if [[ "${INSTALL_MODEL}" == true ]]; then
+        MODEL_TARGET_DIR="./targets/${MODEL_NAME}"
+    fi
 
     if [[ "$INSTALL_PACKAGES" == true ]]; then
         install_pytorch
         install_packages
     elif [[ "$INSTALL_MODEL" == true ]]; then
         install_model
+        install_pytorch
+        install_packages
     elif [[ "$INSTALL_DATASET" == true ]]; then
         install_dataset
     fi

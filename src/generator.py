@@ -1024,6 +1024,9 @@ class DatasetGenerator:
         self.max_retries = self.cot_generator.llm_client.max_retries
         self.batch_size = self.generator_config.get('batch_size', self.cot_generator.llm_client.batch_size)
         self.debug = self.cot_generator.debug
+
+        peft_mode = config.get('common', {}).get('parameter_efficient_mode', '')
+        self.use_cot_tokens = peft_mode in ('lora-cog-frozen', 'lora-cog-tuned')
         
         self._initialize_configuration()
         
@@ -1611,7 +1614,7 @@ class DatasetGenerator:
         question, answer = self._format_question_and_answer_internal(example)
         
         cot_steps = []
-        if split != "test":
+        if split != "test" and self.use_cot_tokens:
             for retry in range(self.max_retries):
                 try:
                     cot_steps = self.cot_generator.get_cot_steps_with_retry(question, answer)
@@ -1623,7 +1626,7 @@ class DatasetGenerator:
                     if retry == self.max_retries - 1:
                         logger.error(f"Failed after {self.max_retries} retries")
         
-        if cot_steps and hasattr(self, '_postprocess_cot_steps'):
+        if self.use_cot_tokens and cot_steps and hasattr(self, '_postprocess_cot_steps'):
             cot_steps = self._postprocess_cot_steps(cot_steps, answer)
         
         return {
@@ -1634,7 +1637,7 @@ class DatasetGenerator:
         }
     
     def process_batch(self, examples: List[Dict], split: str) -> List[Dict]:
-        if split == "test":
+        if split == "test" or not self.use_cot_tokens:
             results = []
             for example in examples:
                 question, answer = self._format_question_and_answer_internal(example)
@@ -1726,7 +1729,7 @@ class DatasetGenerator:
                     try:
                         batch_results = self.process_batch(batch_data, split)
                         for res in batch_results:
-                            if res.get('cot_steps'):
+                            if not self.use_cot_tokens or res.get('cot_steps'):
                                 results.append(res)
                         if self.incremental_save and (i + 1) % self.incremental_save_interval == 0:
                             self.save_results(results, output_file)
@@ -1735,7 +1738,7 @@ class DatasetGenerator:
                         for example in batch_data:
                             try:
                                 processed = self.process_example(example, split)
-                                if processed.get('cot_steps'):
+                                if not self.use_cot_tokens or processed.get('cot_steps'):
                                     results.append(processed)
                             except Exception as e2:
                                 logger.warning(f"Failed to process individual example: {e2}")
@@ -1745,7 +1748,7 @@ class DatasetGenerator:
                 for i, example in enumerate(tqdm(data_list, desc=f"Processing {self.dataset_name} {split}")):
                     try:
                         processed = self.process_example(example, split)
-                        if processed.get('cot_steps'):
+                        if not self.use_cot_tokens or processed.get('cot_steps'):
                             results.append(processed)
                         if self.incremental_save and (i + 1) % self.incremental_save_interval == 0:
                             self.save_results(results, output_file)
@@ -1755,7 +1758,7 @@ class DatasetGenerator:
 
         self.save_results(results, output_file)
 
-        if self.filter_output and split != "test":
+        if self.filter_output and split != "test" and self.use_cot_tokens:
             logger.info(f"Filtering {split} results")
             results = self.filter_results(results, split)
             output_file = self.get_output_filename(split)

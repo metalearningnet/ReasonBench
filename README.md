@@ -26,12 +26,22 @@ cd LLMReasonBench
 
 Before training, you must generate structured CoT steps for your dataset. The generator uses an LLM (vLLM for local inference or OpenAI API) to create steps annotated with the special tokens defined in `COT_TOKENS` (by default, `<memory>` for factual extraction and `<reason>` for logical operations).
 
-> **⚠️ Important:** For generating CoT steps, the `parameter_efficient_mode` in `conf/settings.yaml` **must** be set to either `lora-cog-frozen` or `lora-cog-tuned`. This enables the special token‑guided reasoning structure required by the generator.
+> **💡 Teacher‑LLM generation control**  
+>  
+> Whether the teacher LLM is invoked to produce CoT steps depends on the `parameter_efficient_mode` setting in `conf/settings.yaml`.  
+>  
+> - **With CoT reasoning** (teacher generates structured steps): set the mode to `lora-cog-frozen` or `lora-cog-tuned`.  
+> - **Without CoT reasoning** (fast dataset preparation): set the mode to any other value, e.g., `none` or `lora`. The generator will simply format the questions and answers, saving a plain dataset suitable for standard fine‑tuning or evaluation.  
+>  
+> The generation command itself runs identically in both cases.
 
 ```bash
 # Generate CoT data for TruthfulQA training set (using vLLM backend by default)
 ./run.sh --generate --dataset truthfulqa --mode train
 ```
+
+If the teacher LLM should produce reasoning steps, make sure `parameter_efficient_mode` is `lora-cog-frozen` or `lora-cog-tuned` *before* running the command.  
+If the mode is `none` or `lora`, the generator skips the teacher entirely and produces a clean question‑answer dataset with empty CoT fields – perfect for baselines or initial data inspection.
 
 > **Note:** Generation requires a valid LLM backend. The default is `vllm` with teacher model `Qwen/Qwen3.5-27B`. Configure paths or API keys in `conf/settings.yaml`.
 
@@ -217,7 +227,7 @@ For interactive benchmarks (e.g., ALFWorld, ARC‑3), use the `InteractiveGenera
 
    class MyInteractiveGenerator(InteractiveGenerator):
        def setup_environment(self, task: Dict[str, Any], split: str = "train") -> Any:
-           # Initialize environment (e.g., gym, TextWorld, arc-agi)
+           # Initialize environment (e.g., arc-agi)
            pass
 
        def load_builtin_tasks(self) -> List[Dict[str, Any]]:
@@ -251,14 +261,17 @@ All configuration files reside in the `conf/` directory.
 - Training hyperparameters (`train` section)
 - Generation backend and teacher model (`generator` section)
 
-> **Important for CoT generation:** The `common.parameter_efficient_mode` field **must** be set to `lora-cog-frozen` or `lora-cog-tuned` when generating Chain‑of‑Thought data. These modes enable the structured reasoning with special tokens. For training or evaluation without generation, any valid mode can be used.
+> **Important for CoT generation:** When you want the teacher LLM to produce CoT steps, set `common.parameter_efficient_mode` to `lora-cog-frozen` or `lora-cog-tuned`. If you choose any other mode (e.g., `none` or `lora`), the generator will produce a plain dataset without reasoning chains – an efficient way to pre‑process data for standard supervised fine‑tuning.
 
-Example snippet (showing key defaults and the required mode for CoT generation):
+Example snippet (showing key defaults):
 
 ```yaml
 common:
   model: "Qwen/Qwen3.5-4B"
-  parameter_efficient_mode: "lora-cog-tuned"   # Required for CoT generation
+  # Choose a mode:
+  #   lora-cog-frozen / lora-cog-tuned  → teacher LLM generates CoT steps
+  #   none / lora                       → plain dataset, no teacher LLM
+  parameter_efficient_mode: "lora-cog-tuned"
   lora_config:
     r: 16
     alpha: 16

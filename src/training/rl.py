@@ -73,7 +73,7 @@ class RLConfigManager:
             "ref_model_init_kwargs": {},
             "model_init_kwargs": {}
         }
-        from trainer import CONFIG_MAP
+        from training import CONFIG_MAP
         cfg = CONFIG_MAP[training_mode](config, training_mode, dataset_name)
         args = cfg.update(args)
         return RLTrainingArguments(**args)
